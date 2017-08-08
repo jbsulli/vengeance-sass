@@ -28,6 +28,7 @@
     "istanbul": "^0.4.5",
     "mocha": "^3.4.2",
     "pug": "^2.0.0-rc.2",
+    "source-map": "^0.5.6",
     "vengeance": "0.0.4"
   },
   "dependencies": {

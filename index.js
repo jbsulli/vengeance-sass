@@ -1,7 +1,12 @@
 "use strict";
 
-var sass = require('node-sass');
-var Dependencies = require('vengeance-dependencies');
+const sass = require('node-sass');
+const Dependencies = require('vengeance-dependencies');
+const SourceMap = require('source-map');
+const SourceNode = SourceMap.SourceNode;
+const SourceMapConsumer = SourceMap.SourceMapConsumer;
+const SourceMapGenerator = SourceMap.SourceMapGenerator;
+const LINE_SPLIT = /(?:\r\n|\r|\n)/;
 
 /*** vengeance extension *****************************************************/
 
@@ -21,10 +26,8 @@ class VengeanceSass {
     }
     
     compile(){
-        var src = '';
         var filepath, module, module_name;
         var modules = [];
-        var sources = {};
         
         var deps = new Dependencies();
         
@@ -37,14 +40,30 @@ class VengeanceSass {
         
         modules = deps.getOrder();
         
+        var vars = new SourceNode(1, 1, null);
+        var scss = new SourceNode(1, 1, null);
+        var line, lines;
+        
         for(var i = 0; i < modules.length; i++){
             module = this.modules[modules[i]];
-            if(src){
-                src += '\n';
+            if(scss){
+                scss += '\n';
             }
+            
             filepath = module.namespace + '/' + module.name + '.md';
-            src += '@import ' + JSON.stringify(filepath) + ';';
-            sources[filepath] = module.style.prepend + module.style.src;
+            
+            if(module.style.vars){
+                lines = module.style.vars.src.split(LINE_SPLIT);
+                for(line = module.style.vars.loc.start.line; lines.length; line++){
+                    vars.add(new SourceNode(line, 0, filepath, lines.shift() + '\n'));
+                }
+            }
+            
+            lines = module.style.src.split(LINE_SPLIT);
+            for(line = module.style.loc.start.line; lines.length; line++){
+                console.log(line);
+                vars.add(new SourceNode(line, 0, filepath, lines.shift() + '\n'));
+            }
         }
         
         filepath = this.filepath;
@@ -53,21 +72,36 @@ class VengeanceSass {
         if(~i){
             filepath = filepath.substr(i + 1);
         }
+    
+        scss = new SourceNode(1, 1, null, [vars, scss]).toStringWithSourceMap({ file:filepath });
         
-        src = sass.renderSync({
+        console.log(printEmbedded(scss.code.toString(), scss.map.toString()));
+        
+        var css = sass.renderSync({
             file: 'vengeance',
-            data: src || '/* no sass found */',
+            data: scss.code,
             outputStyle: "compressed",
             outFile: filepath,
             sourceMap: filepath + ".map",
             sourceMapRoot: this.srcpath,
-            importer: function(url, prev, done){
-                return { contents:sources[url] };
-            }
+            sourceMapEmbed: false
         });
         
-        return src;
+        var merged_maps = SourceMapGenerator
+            .fromSourceMap(new SourceMapConsumer(css.map.toString()));
+            
+        merged_maps.applySourceMap(new SourceMapConsumer(scss.map.toString()));
+        
+        css.map = merged_maps;
+        
+        console.log(printEmbedded(css.css.toString(), css.map.toString()));
+        
+        return css;
     }
+}
+
+function printEmbedded(source, map){
+    return source + '\n/*# sourceMappingURL=data:application/json;base64,' + Buffer.from(map).toString('base64') + ' */';
 }
 
 module.exports = VengeanceSass;
